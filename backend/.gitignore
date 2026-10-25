@@ -1,0 +1,24 @@
+# ── Build output ─────────────────────────────────────────
+target/
+*.class
+*.jar
+*.war
+
+# ── Maven ────────────────────────────────────────────────
+.mvn/wrapper/maven-wrapper.jar
+
+# ── Environment / Secrets ────────────────────────────────
+.env
+.env.local
+*.env
+
+# ── IDE ──────────────────────────────────────────────────
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# ── Logs ─────────────────────────────────────────────────
+logs/
+*.log

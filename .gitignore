@@ -1,0 +1,21 @@
+# ── Environment / Secrets ────────────────────────────────
+.env
+.env.local
+.env.production
+*.env
+
+# ── IDE / Editor ─────────────────────────────────────────
+.idea/
+.vscode/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# ── OS ───────────────────────────────────────────────────
+.DS_Store
+desktop.ini
