@@ -2,17 +2,6 @@
 
 An AI-powered browser-based voice customer support agent for **Aura Skincare**, a premium organic Indian skincare brand. Users can speak naturally with **Aria**, the AI agent, and get instant help with orders, returns, shipping policies, and cancellations.
 
----
-
-## 🔗 Live Links
-
-| Resource | URL |
-|---|---|
-| **Frontend (Vercel)** | *(add after deployment)* |
-| **Backend API (Railway)** | *(add after deployment)* |
-| **Demo Video** | *(add link)* |
-
----
 
 ## ✨ Features
 
