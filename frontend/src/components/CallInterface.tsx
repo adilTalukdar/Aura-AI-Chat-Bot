@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { AgentState, CallSummary, TranscriptEntry } from '../types';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
@@ -21,7 +21,11 @@ export function CallInterface({ onSummaryReceived }: CallInterfaceProps) {
   const [summary, setSummary] = useState<CallSummary | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
-  const callStartRef = { current: 0 };
+  const callStartRef = useRef(0);
+  // Refs so callbacks captured by the WebSocket/TTS handlers see current values
+  const callActiveRef = useRef(false);
+  const agentStateRef = useRef<AgentState>('IDLE');
+  agentStateRef.current = agentState;
 
   // ── TTS ──────────────────────────────────────────────────────────────────
   const tts = useSpeechSynthesis({
@@ -29,7 +33,7 @@ export function CallInterface({ onSummaryReceived }: CallInterfaceProps) {
     onEnd:   () => {
       setAgentState('LISTENING');
       // Re-arm speech recognition after agent finishes speaking
-      if (callActive) stt.start();
+      if (callActiveRef.current) stt.start();
     },
   });
 
@@ -40,17 +44,30 @@ export function CallInterface({ onSummaryReceived }: CallInterfaceProps) {
     ws.sendMessage(text);
   }, []);
 
+  // Chrome stops recognition after a few seconds of silence — keep listening
+  const handleRecognitionIdle = useCallback(() => {
+    if (callActiveRef.current && agentStateRef.current === 'LISTENING') {
+      stt.start();
+    }
+  }, []);
+
   const stt = useSpeechRecognition({
     onTranscript: handleCustomerTranscript,
+    onIdleEnd: handleRecognitionIdle,
     agentState,
   });
 
   // ── WebSocket ─────────────────────────────────────────────────────────────
   const handleAgentResponse = useCallback((text: string) => {
+    if (!callActiveRef.current) return;
+    // Make sure the mic is off while Aria talks so she doesn't hear herself
+    stt.stop();
     tts.speak(text);
-  }, [tts]);
+  }, [tts, stt]);
 
   const handleStateChange = useCallback((state: AgentState) => {
+    // SPEAKING is driven by actual TTS playback (tts.onStart), not the server
+    if (state === 'SPEAKING') return;
     setAgentState(state);
   }, []);
 
@@ -80,6 +97,7 @@ export function CallInterface({ onSummaryReceived }: CallInterfaceProps) {
     setSummary(null);
     setShowSummary(false);
     setCallActive(true);
+    callActiveRef.current = true;
 
     ws.connect();
     // Small delay to let WebSocket connect before starting recognition
@@ -89,6 +107,7 @@ export function CallInterface({ onSummaryReceived }: CallInterfaceProps) {
   }, [stt, ws]);
 
   const endCall = useCallback(() => {
+    callActiveRef.current = false;
     stt.stop();
     tts.stop();
     setCallDuration(Math.floor((Date.now() - callStartRef.current) / 1000));

@@ -93,25 +93,29 @@ public class VoiceSessionHandler extends TextWebSocketHandler {
         List<Map<String, Object>> history = sessionHistories.get(sessionId);
         if (history == null) return;
 
-        log.info("Customer [{}]: {}", sessionId, text);
+        // One turn at a time per session — concurrent turns would interleave
+        // messages in the shared history and break the tool-call sequence
+        synchronized (history) {
+            log.info("Customer [{}]: {}", sessionId, text);
 
-        // Echo transcript back to frontend
-        sendJson(session, "transcript", Map.of("role", "customer", "text", text));
+            // Echo transcript back to frontend
+            sendJson(session, "transcript", Map.of("role", "customer", "text", text));
 
-        // Indicate thinking
-        sendJson(session, "state_change", Map.of("state", "THINKING"));
+            // Indicate thinking
+            sendJson(session, "state_change", Map.of("state", "THINKING"));
 
-        // Add customer message to history
-        history.add(Map.of("role", "user", "content", text));
+            // Add customer message to history
+            history.add(Map.of("role", "user", "content", text));
 
-        // Call LLM (includes tool-calling loop)
-        String agentResponse = llmService.chat(history);
-        log.info("Agent [{}]: {}", sessionId, agentResponse);
+            // Call LLM (includes tool-calling loop)
+            String agentResponse = llmService.chat(history);
+            log.info("Agent [{}]: {}", sessionId, agentResponse);
 
-        // Send agent response
-        sendJson(session, "transcript", Map.of("role", "agent", "text", agentResponse));
-        sendJson(session, "agent_response", Map.of("text", agentResponse));
-        sendJson(session, "state_change", Map.of("state", "SPEAKING"));
+            // Send agent response
+            sendJson(session, "transcript", Map.of("role", "agent", "text", agentResponse));
+            sendJson(session, "agent_response", Map.of("text", agentResponse));
+            sendJson(session, "state_change", Map.of("state", "SPEAKING"));
+        }
     }
 
     private void handleEndCall(WebSocketSession session) throws Exception {
@@ -120,19 +124,19 @@ public class VoiceSessionHandler extends TextWebSocketHandler {
 
         List<Map<String, Object>> history = sessionHistories.get(sessionId);
         if (history == null || history.isEmpty()) {
-            sendJson(session, "summary", Map.of("data", Map.of(
-                "customer_intent", "NO_INTERACTION",
-                "order_id", (Object) null,
-                "resolution_status", "UNRESOLVED",
-                "call_summary", "No conversation took place."
-            )));
+            sendJson(session, "summary", Map.of("data",
+                    fallbackSummary("NO_INTERACTION", "No conversation took place.")));
+            sendJson(session, "state_change", Map.of("state", "IDLE"));
             return;
         }
 
         sendJson(session, "state_change", Map.of("state", "THINKING"));
 
         try {
-            String rawSummary = llmService.generateSummary(history);
+            String rawSummary;
+            synchronized (history) {
+                rawSummary = llmService.generateSummary(history);
+            }
             log.info("Generated summary: {}", rawSummary);
 
             // Parse and validate summary JSON
@@ -140,18 +144,24 @@ public class VoiceSessionHandler extends TextWebSocketHandler {
             sendJson(session, "summary", Map.of("data", summaryNode));
         } catch (Exception e) {
             log.error("Summary generation failed: {}", e.getMessage());
-            sendJson(session, "summary", Map.of("data", Map.of(
-                "customer_intent", "UNKNOWN",
-                "order_id", (Object) null,
-                "resolution_status", "UNRESOLVED",
-                "call_summary", "Call summary could not be generated."
-            )));
+            sendJson(session, "summary", Map.of("data",
+                    fallbackSummary("UNKNOWN", "Call summary could not be generated.")));
         }
 
         sendJson(session, "state_change", Map.of("state", "IDLE"));
     }
 
     // ── Utility ───────────────────────────────────────────────────────────────
+
+    // Map.of() rejects null values, so build the fallback as a JSON node
+    private ObjectNode fallbackSummary(String intent, String callSummary) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("customer_intent", intent);
+        node.putNull("order_id");
+        node.put("resolution_status", "UNRESOLVED");
+        node.put("call_summary", callSummary);
+        return node;
+    }
 
     private void sendJson(WebSocketSession session, String type, Map<String, Object> data) {
         try {

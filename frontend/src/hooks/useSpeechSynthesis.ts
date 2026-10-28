@@ -37,11 +37,18 @@ export function useSpeechSynthesis({ onStart, onEnd }: UseSpeechSynthesisProps =
       utterance.pitch = 1.05;
       utterance.volume = 1.0;
 
-      utterance.onstart = () => onStart?.();
-      utterance.onend = () => onEnd?.();
-      utterance.onerror = (e) => {
-        if (e.error !== 'interrupted') console.warn('TTS error:', e.error);
+      // Only the current utterance may report its end — a cancelled/replaced one
+      // must not re-arm the microphone
+      const finish = () => {
+        if (utteranceRef.current !== utterance) return;
+        utteranceRef.current = null;
         onEnd?.();
+      };
+      utterance.onstart = () => onStart?.();
+      utterance.onend = finish;
+      utterance.onerror = (e) => {
+        if (e.error !== 'interrupted' && e.error !== 'canceled') console.warn('TTS error:', e.error);
+        finish();
       };
 
       window.speechSynthesis.speak(utterance);
@@ -57,8 +64,8 @@ export function useSpeechSynthesis({ onStart, onEnd }: UseSpeechSynthesisProps =
   }, [onStart, onEnd]);
 
   const stop = useCallback(() => {
-    window.speechSynthesis.cancel();
     utteranceRef.current = null;
+    window.speechSynthesis.cancel();
   }, []);
 
   const isSpeaking = () => window.speechSynthesis.speaking;
